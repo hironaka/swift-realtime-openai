@@ -74,7 +74,10 @@ public final class Conversation: @unchecked Sendable {
 					do { try await self.handleEvent(event) }
 					catch { print("Unhandled error in event handler: \(error)") }
 
-					guard !Task.isCancelled else { break }
+                    guard !Task.isCancelled else {
+                        print("Event handler task cancelled")
+                        break
+                    }
 				}
 			} catch {
 				print("Unhandled error in conversation task: \(error)")
@@ -86,6 +89,12 @@ public final class Conversation: @unchecked Sendable {
 		client.disconnect()
 		errorStream.finish()
 	}
+
+    public func disconnect() {
+        task.cancel()
+        client.disconnect()
+        errorStream.finish()
+    }
 
 	public func connect(using request: URLRequest) async throws {
 		await AVAudioApplication.requestRecordPermission()
