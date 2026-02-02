@@ -12,14 +12,34 @@ public enum ConversationError: Error {
 @MainActor @Observable
 public final class Conversation: @unchecked Sendable {
 	public typealias SessionUpdateCallback = (inout Session) -> Void
+	public typealias TokenProvider = () async -> String?
 
-	private let client: WebRTCConnector
+	private var client: WebRTCConnector
 	private var task: Task<Void, Error>!
+	private var statusObserverTask: Task<Void, Never>?
+	private var reconnectTimer: Task<Void, Never>?
 	private let sessionUpdateCallback: SessionUpdateCallback?
 	private let errorStream: AsyncStream<ServerError>.Continuation
+	private var lastConnectionRequest: URLRequest?
 
 	/// Whether to print debug information to the console.
 	public var debug: Bool
+
+	/// Whether the conversation is currently reconnecting.
+	public private(set) var isReconnecting: Bool = false
+
+	/// Enable automatic reconnection when the connection drops or before session timeout.
+	public var autoReconnect: Bool = false
+
+	/// A callback to fetch a new ephemeral token for reconnection.
+	/// Required when autoReconnect is enabled.
+	public var tokenProvider: TokenProvider?
+
+	/// Called when reconnection starts.
+	public var onReconnecting: (() -> Void)?
+
+	/// Called when reconnection completes successfully.
+	public var onReconnected: (() -> Void)?
 
 	/// Whether to mute the user's microphone.
 	public var muted: Bool = false {
@@ -66,11 +86,18 @@ public final class Conversation: @unchecked Sendable {
 		self.sessionUpdateCallback = sessionUpdateCallback
 		(errors, errorStream) = AsyncStream.makeStream(of: ServerError.self)
 
-		task = Task.detached { [weak self] in
+		setupEventHandler()
+		setupStatusObserver()
+	}
+
+	private func setupEventHandler() {
+		task?.cancel()
+		let clientEvents = client.events
+		task = Task.detached { [weak self, clientEvents] in
 			guard let self else { return }
 
 			do {
-				for try await event in self.client.events {
+				for try await event in clientEvents {
 					do { try await self.handleEvent(event) }
 					catch { print("Unhandled error in event handler: \(error)") }
 
@@ -85,8 +112,30 @@ public final class Conversation: @unchecked Sendable {
 		}
 	}
 
+	private func setupStatusObserver() {
+		statusObserverTask?.cancel()
+		let clientStatus = client.status
+		let clientStatusUpdates = client.statusUpdates
+		statusObserverTask = Task { [weak self, clientStatusUpdates] in
+			guard let self else { return }
+			var previousStatus = clientStatus
+
+			for await newStatus in clientStatusUpdates {
+				guard !Task.isCancelled else { break }
+
+				if previousStatus == .connected && newStatus == .disconnected && self.autoReconnect && !self.isReconnecting {
+					do {
+						try await self.reconnect()
+					} catch {
+						print("Auto-reconnect failed: \(error)")
+					}
+				}
+				previousStatus = newStatus
+			}
+		}
+	}
+
 	deinit {
-		client.disconnect()
 		errorStream.finish()
 	}
 
@@ -94,12 +143,16 @@ public final class Conversation: @unchecked Sendable {
         task.cancel()
         client.disconnect()
         errorStream.finish()
+        statusObserverTask?.cancel()
+        reconnectTimer?.cancel()
     }
 
 	public func connect(using request: URLRequest) async throws {
 		await AVAudioApplication.requestRecordPermission()
+		lastConnectionRequest = request
 
 		try await client.connect(using: request)
+		startReconnectTimer()
 	}
 
 	public func connect(ephemeralKey: String, model: Model = .gptRealtime) async throws {
@@ -116,6 +169,98 @@ public final class Conversation: @unchecked Sendable {
 		while status != .connected {
 			try? await Task.sleep(for: .milliseconds(500))
 		}
+	}
+
+	/// Reconnect to the API with a new session while preserving conversation history.
+	/// If a tokenProvider is set, it will be used to obtain a new ephemeral key.
+	/// Otherwise, the original connection request will be reused (which may fail if the key has expired).
+	public func reconnect() async throws {
+		guard !isReconnecting else { return }
+		isReconnecting = true
+		onReconnecting?()
+
+		// Collect transcripts from the current session before disconnecting
+		let transcripts = collectTranscripts()
+
+		// Store current session configuration
+		let currentSession = session
+
+		// Disconnect the old client
+		client.disconnect()
+
+		// Create a new client
+		client = try! WebRTCConnector.create()
+		setupEventHandler()
+		setupStatusObserver()
+
+		// Reconnect with a new token or reuse the last request
+		if let tokenProvider = tokenProvider, let token = await tokenProvider() {
+			try await connect(ephemeralKey: token)
+		} else if let lastRequest = lastConnectionRequest {
+			try await connect(using: lastRequest)
+		} else {
+			isReconnecting = false
+			throw ConversationError.invalidEphemeralKey
+		}
+
+		await waitForConnection()
+
+		// Restore session configuration
+		if let currentSession {
+			try? updateSession { session in
+				session.instructions = currentSession.instructions
+				session.audio = currentSession.audio
+				session.tools = currentSession.tools
+				session.toolChoice = currentSession.toolChoice
+				session.temperature = currentSession.temperature
+				session.maxResponseOutputTokens = currentSession.maxResponseOutputTokens
+				session.modalities = currentSession.modalities
+			}
+		}
+
+		// Send previous transcripts as context
+		if !transcripts.isEmpty {
+			try sendTranscriptHistory(transcripts)
+		}
+
+		isReconnecting = false
+		onReconnected?()
+	}
+
+	/// Start a timer to proactively reconnect before session timeout (at 29 minutes).
+	private func startReconnectTimer() {
+		reconnectTimer?.cancel()
+		reconnectTimer = Task { [weak self] in
+			do {
+				try await Task.sleep(for: .seconds(60)) // 1 minutes
+				guard let self, !Task.isCancelled, self.autoReconnect, self.status == .connected else { return }
+				try await self.reconnect()
+			} catch {
+				print("Proactive reconnect failed: \(error)")
+			}
+		}
+	}
+
+	/// Collect all transcripts from the current conversation messages.
+	private func collectTranscripts() -> [String] {
+		messages.compactMap { message -> String? in
+			let texts = message.content.compactMap { content -> String? in
+				switch content {
+				case .text(let text): return text
+				case .audio(let audio): return audio.transcript
+				case .inputAudio(let inputAudio): return inputAudio.transcript
+				default: return nil
+				}
+			}
+			guard !texts.isEmpty else { return nil }
+			return texts.joined(separator: " ")
+		}
+	}
+
+	/// Send previous transcripts to the new session as context.
+	private func sendTranscriptHistory(_ transcripts: [String]) throws {
+		let contextMessage = "We just reconnected from a previous session. Here is the previous conversation history:\n\n" + transcripts.joined(separator: "\n")
+		try send(from: .user, text: contextMessage)
 	}
 
 	/// Execute a block of code when the connection is established
