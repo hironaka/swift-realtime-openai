@@ -30,9 +30,6 @@ public final class Conversation: @unchecked Sendable {
 
 	/// Enable automatic reconnection when the connection drops or before session timeout.
 	public var autoReconnect: Bool = false
-    
-    /// Maximum session duration.
-    public var sessionMaxDurationSeconds: Int = 59 * 60
 
 	/// A callback to fetch a new ephemeral token for reconnection.
 	/// Required when autoReconnect is enabled.
@@ -235,9 +232,8 @@ public final class Conversation: @unchecked Sendable {
 		reconnectTimer?.cancel()
 		reconnectTimer = Task { [weak self] in
 			do {
-                guard let self = self else { return }
-                try await Task.sleep(for: .seconds(self.sessionMaxDurationSeconds))
-				guard !Task.isCancelled, self.autoReconnect, self.status == .connected else { return }
+				try await Task.sleep(for: .seconds(60)) // 1 minutes
+				guard let self, !Task.isCancelled, self.autoReconnect, self.status == .connected else { return }
 				try await self.reconnect()
 			} catch {
 				print("Proactive reconnect failed: \(error)")
