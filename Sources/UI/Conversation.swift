@@ -234,13 +234,32 @@ private extension Conversation {
 				}
 			case let .responseTextDelta(_, _, itemId, _, contentIndex, delta):
 				updateEvent(id: itemId) { message in
-					guard case let .text(text) = message.content[contentIndex] else { return }
-
-					message.content[contentIndex] = .text(text + delta)
+                    // Handle all text variants
+                    switch message.content[contentIndex] {
+                    case let .text(text):
+                        message.content[contentIndex] = .text(text + delta)
+                    case let .outputText(text):
+                        message.content[contentIndex] = .outputText(text + delta)
+                    case let .inputText(text):
+                        message.content[contentIndex] = .inputText(text + delta)
+                    default:
+                        break
+                    }
 				}
 			case let .responseTextDone(_, _, itemId, _, contentIndex, text):
 				updateEvent(id: itemId) { message in
-					message.content[contentIndex] = .text(text)
+                    // Preserve the type when updating content
+                    switch message.content[contentIndex] {
+                    case .text:
+                        message.content[contentIndex] = .text(text)
+                    case .outputText:
+                        message.content[contentIndex] = .outputText(text)
+                    case .inputText:
+                        message.content[contentIndex] = .inputText(text)
+                    default:
+                        // Fallback to text if type is mismatched or unknown
+                        message.content[contentIndex] = .text(text)
+                    }
 				}
 			case let .responseAudioTranscriptDelta(_, _, itemId, _, contentIndex, delta):
 				updateEvent(id: itemId) { message in
@@ -275,6 +294,8 @@ private extension Conversation {
 				isModelSpeaking = true
 			case .outputAudioBufferStopped:
 				isModelSpeaking = false
+            case .outputAudioBufferCleared:
+                isModelSpeaking = false
 			case let .responseOutputItemDone(_, _, _, item):
 				updateEvent(id: item.id) { message in
 					guard case let .message(newMessage) = item else { return }
