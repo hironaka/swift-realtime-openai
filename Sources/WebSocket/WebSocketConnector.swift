@@ -6,13 +6,11 @@ import FoundationNetworking
 
 public final class WebSocketConnector: NSObject, Connector, Sendable {
 	public let events: AsyncThrowingStream<ServerEvent, Error>
-	public let statusUpdates: AsyncStream<RealtimeAPI.Status>
 	@MainActor public private(set) var status = RealtimeAPI.Status.connecting
 
 	private let task: Task<Void, Never>
 	private let webSocket: URLSessionWebSocketTask
 	private let stream: AsyncThrowingStream<ServerEvent, Error>.Continuation
-	private let statusContinuation: AsyncStream<RealtimeAPI.Status>.Continuation
 
 	private let encoder: JSONEncoder = {
 		let encoder = JSONEncoder()
@@ -22,14 +20,11 @@ public final class WebSocketConnector: NSObject, Connector, Sendable {
 
 	init(connectingTo request: URLRequest) {
 		let (events, stream) = AsyncThrowingStream.makeStream(of: ServerEvent.self)
-		let (statusUpdates, statusContinuation) = AsyncStream.makeStream(of: RealtimeAPI.Status.self)
 
 		let webSocket = URLSession.shared.webSocketTask(with: request)
 
 		self.events = events
 		self.stream = stream
-		self.statusUpdates = statusUpdates
-		self.statusContinuation = statusContinuation
 		self.webSocket = webSocket
 
 		task = Task.detached { [webSocket, stream] in
@@ -86,22 +81,19 @@ public final class WebSocketConnector: NSObject, Connector, Sendable {
 		webSocket.cancel(with: .goingAway, reason: nil)
 		task.cancel()
 		stream.finish()
-		statusContinuation.finish()
 	}
 }
 
 extension WebSocketConnector: URLSessionWebSocketDelegate {
 	public func urlSession(_: URLSession, webSocketTask _: URLSessionWebSocketTask, didOpenWithProtocol _: String?) {
-		Task { @MainActor [statusContinuation] in
+		Task { @MainActor in
 			status = .connected
-			statusContinuation.yield(.connected)
 		}
 	}
 
 	public func urlSession(_: URLSession, webSocketTask _: URLSessionWebSocketTask, didCloseWith _: URLSessionWebSocketTask.CloseCode, reason _: Data?) {
-		Task { @MainActor [statusContinuation] in
+		Task { @MainActor in
 			status = .disconnected
-			statusContinuation.yield(.disconnected)
 		}
 	}
 }

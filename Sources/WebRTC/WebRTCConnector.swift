@@ -19,7 +19,6 @@ import FoundationNetworking
 	}
 
 	public let events: AsyncThrowingStream<ServerEvent, Error>
-	public let statusUpdates: AsyncStream<RealtimeAPI.Status>
 	@MainActor public private(set) var status = RealtimeAPI.Status.disconnected
 
 	public var isMuted: Bool {
@@ -31,7 +30,6 @@ import FoundationNetworking
 	private let connection: LKRTCPeerConnection
 
 	private let stream: AsyncThrowingStream<ServerEvent, Error>.Continuation
-	private let statusContinuation: AsyncStream<RealtimeAPI.Status>.Continuation
 
 	private static let factory: LKRTCPeerConnectionFactory = {
 		LKRTCInitializeSSL()
@@ -56,7 +54,6 @@ import FoundationNetworking
 		self.audioTrack = audioTrack
 		self.dataChannel = dataChannel
 		(events, stream) = AsyncThrowingStream.makeStream(of: ServerEvent.self)
-		(statusUpdates, statusContinuation) = AsyncStream.makeStream(of: RealtimeAPI.Status.self)
 
 		super.init()
 
@@ -86,7 +83,6 @@ import FoundationNetworking
 	public func disconnect() {
 		connection.close()
 		stream.finish()
-		statusContinuation.finish()
 	}
 
 	public func toggleMute() {
@@ -205,14 +201,10 @@ extension WebRTCConnector: LKRTCDataChannelDelegate {
 	}
 
 	public func dataChannelDidChangeState(_ dataChannel: LKRTCDataChannel) {
-		Task { @MainActor [state = dataChannel.readyState, statusContinuation] in
+		Task { @MainActor [state = dataChannel.readyState] in
 			switch state {
-				case .open:
-					status = .connected
-					statusContinuation.yield(.connected)
-				case .closing, .closed:
-					status = .disconnected
-					statusContinuation.yield(.disconnected)
+				case .open: status = .connected
+				case .closing, .closed: status = .disconnected
 				default: break
 			}
 		}
