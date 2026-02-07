@@ -95,7 +95,7 @@ import HelperCoders
 			}
 
 			/// Configuration for turn detection
-			public struct TurnDetection: Codable, Equatable, Hashable, Sendable {
+			@Codable public struct TurnDetection: Equatable, Hashable, Sendable {
 				/// The type of turn detection.
 				public enum VAD: String, Codable, Equatable, Hashable, Sendable {
 					case server = "server_vad"
