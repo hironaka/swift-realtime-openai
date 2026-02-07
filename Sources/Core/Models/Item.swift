@@ -393,6 +393,9 @@ extension Item.ContentPart: Codable {
 			case "text":
 				let container = try decoder.container(keyedBy: Text.CodingKeys.self)
 				self = try .text(container.decode(String.self, forKey: .text))
+            case "output_text":
+                let container = try decoder.container(keyedBy: Text.CodingKeys.self)
+                self = try .text(container.decode(String.self, forKey: .text))
 			case "audio":
 				self = try .audio(Item.Audio(from: decoder))
 			default:
@@ -439,6 +442,9 @@ extension Item.Message.Content: Codable {
 			case "text":
 				let container = try decoder.container(keyedBy: Text.CodingKeys.self)
 				self = try .text(container.decode(String.self, forKey: .text))
+			case "output_text":
+				let container = try decoder.container(keyedBy: Text.CodingKeys.self)
+				self = try .outputText(container.decode(String.self, forKey: .text))
 			case "input_text":
 				let container = try decoder.container(keyedBy: Text.CodingKeys.self)
 				self = try .inputText(container.decode(String.self, forKey: .text))
