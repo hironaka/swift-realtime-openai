@@ -35,6 +35,7 @@ import MetaCodable
 
 		public enum Content: Equatable, Hashable, Sendable {
 			case text(String)
+            case outputText(String) // Add explicit case for assistant text
 			case audio(Audio)
 			case inputText(String)
 			case inputAudio(Audio)
@@ -42,6 +43,7 @@ import MetaCodable
 			public var text: String? {
 				switch self {
 					case let .text(text): text
+                    case let .outputText(text): text
 					case let .inputText(text): text
 					case let .audio(audio): audio.transcript
 					case let .inputAudio(audio): audio.transcript
@@ -459,6 +461,9 @@ extension Item.Message.Content: Codable {
 			case let .inputText(text):
 				try container.encode(text, forKey: .text)
 				try container.encode("input_text", forKey: .type)
+			case let .outputText(text):
+				try container.encode(text, forKey: .text)
+				try container.encode("output_text", forKey: .type) // This is the crucial fix for assistant text
 			case let .audio(audio):
 				try container.encode("output_audio", forKey: .type)
 				try container.encode(audio.audio, forKey: .audio)
