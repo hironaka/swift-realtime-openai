@@ -22,11 +22,6 @@ import MetaCodable
 		public var token: String
 	}
 
-	public struct Usage: Equatable, Hashable, Codable, Sendable {
-        let type: String
-        let seconds: Int
-    }
-
 	/// Returned when an error occurs.
 	/// - Parameter eventId: The unique ID of the server event.
 	/// - Parameter error: Details of the error.
@@ -95,7 +90,7 @@ import MetaCodable
 		contentIndex: Int,
 		transcript: String,
 		logprobs: [LogProb]?,
-		usage: Usage
+		usage: Response.Usage
 	)
 
 	/// Returned when the text value of an input audio transcription content part is updated.
