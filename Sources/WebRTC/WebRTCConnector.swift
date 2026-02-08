@@ -81,8 +81,18 @@ import FoundationNetworking
 	}
 
 	public func disconnect() {
+        audioTrack.isEnabled = false
 		connection.close()
 		stream.finish()
+        
+        // Deactivate audio session to release resources
+        #if !os(macOS)
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to deactivate AVAudioSession: \(error)")
+        }
+        #endif
 	}
 
 	public func toggleMute() {
