@@ -208,7 +208,7 @@ private extension Conversation {
                     guard case let .inputAudio(audio) = message.content[contentIndex] else { return }
 
                     message.content[contentIndex] = .inputAudio(
-                        .init(audio: audio.audio, transcript: audio.transcript ?? "" + delta)
+                        .init(audio: audio.audio, transcript: (audio.transcript ?? "") + delta)
                     )
                 }
 			case let .conversationItemInputAudioTranscriptionCompleted(_, itemId, contentIndex, transcript, _, _):
