@@ -76,8 +76,12 @@ import FoundationNetworking
 			throw WebRTCError.missingAudioPermission
 		}
 
-		try await performHandshake(using: request)
+		// Configure audio session BEFORE handshake so WebRTC's audio unit
+		// can start I/O successfully when the SDP offer is created.
+		// On reconnect, the previous connection.close() causes iOS to revert
+		// the session to SoloAmbient/Default, which doesn't support recording.
 		Self.configureAudioSession()
+		try await performHandshake(using: request)
 		print("[AudioDebug] connect() finished — audioTrack.isEnabled: \(audioTrack.isEnabled)")
 	}
 
@@ -91,18 +95,14 @@ import FoundationNetworking
 		connection.close()
 		stream.finish()
 
-        // STEP 2 TEST: Skipping audio session deactivation to test if this is the culprit
-        // If audio works after reconnect with this commented out, the issue is deactivation/reactivation.
+        // Deactivate audio session to release resources
         #if !os(macOS)
-//        do {
-//			let audioSession = AVAudioSession.sharedInstance()
-//			print("[AudioDebug] deactivating audio session — route before: \(audioSession.currentRoute)")
-//            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-//			print("[AudioDebug] audio session deactivated successfully")
-//        } catch {
-//            print("[AudioDebug] deactivateAudioSession FAILED: \(error)")
-//        }
-		print("[AudioDebug] disconnect() — SKIPPING audio session deactivation (test)")
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+			print("[AudioDebug] audio session deactivated successfully")
+        } catch {
+            print("[AudioDebug] deactivateAudioSession FAILED: \(error)")
+        }
         #endif
 	}
 
