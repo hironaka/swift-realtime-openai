@@ -76,11 +76,6 @@ import FoundationNetworking
 			throw WebRTCError.missingAudioPermission
 		}
 
-		// Configure audio session BEFORE handshake so WebRTC's audio unit
-		// can start I/O successfully when the SDP offer is created.
-		// On reconnect, the previous connection.close() causes iOS to revert
-		// the session to SoloAmbient/Default, which doesn't support recording.
-		Self.configureAudioSession()
 		try await performHandshake(using: request)
 		print("[AudioDebug] connect() finished — audioTrack.isEnabled: \(audioTrack.isEnabled)")
 	}
@@ -125,6 +120,10 @@ extension WebRTCConnector {
 			delegate: nil
 		) else { throw WebRTCError.failedToCreatePeerConnection }
 
+		// Audio session must be configured BEFORE creating audio tracks.
+		// The audio source's underlying Audio Unit is initialized at creation time,
+		// and will fail if the session is still in SoloAmbient (no recording support).
+		configureAudioSession()
 		let audioTrack = Self.setupLocalAudio(for: connection)
 
 		guard let dataChannel = connection.dataChannel(forLabel: "oai-events", configuration: LKRTCDataChannelConfiguration()) else {
