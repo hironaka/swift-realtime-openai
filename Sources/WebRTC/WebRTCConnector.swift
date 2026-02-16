@@ -66,7 +66,11 @@ import FoundationNetworking
 	}
 
 	package func connect(using request: URLRequest) async throws {
-		guard connection.connectionState == .new else { return }
+		print("[AudioDebug] connect() called — connectionState: \(connection.connectionState.rawValue)")
+		guard connection.connectionState == .new else {
+			print("[AudioDebug] connect() SKIPPED — connectionState is not .new")
+			return
+		}
 
 		guard AVAudioApplication.shared.recordPermission == .granted else {
 			throw WebRTCError.missingAudioPermission
@@ -74,6 +78,7 @@ import FoundationNetworking
 
 		try await performHandshake(using: request)
 		Self.configureAudioSession()
+		print("[AudioDebug] connect() finished — audioTrack.isEnabled: \(audioTrack.isEnabled)")
 	}
 
 	public func send(event: ClientEvent) throws {
@@ -81,17 +86,23 @@ import FoundationNetworking
 	}
 
 	public func disconnect() {
+		print("[AudioDebug] disconnect() called — audioTrack.isEnabled: \(audioTrack.isEnabled)")
         audioTrack.isEnabled = false
 		connection.close()
 		stream.finish()
-        
-        // Deactivate audio session to release resources
+
+        // STEP 2 TEST: Skipping audio session deactivation to test if this is the culprit
+        // If audio works after reconnect with this commented out, the issue is deactivation/reactivation.
         #if !os(macOS)
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("Failed to deactivate AVAudioSession: \(error)")
-        }
+//        do {
+//			let audioSession = AVAudioSession.sharedInstance()
+//			print("[AudioDebug] deactivating audio session — route before: \(audioSession.currentRoute)")
+//            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+//			print("[AudioDebug] audio session deactivated successfully")
+//        } catch {
+//            print("[AudioDebug] deactivateAudioSession FAILED: \(error)")
+//        }
+		print("[AudioDebug] disconnect() — SKIPPING audio session deactivation (test)")
         #endif
 	}
 
@@ -143,6 +154,8 @@ private extension WebRTCConnector {
 		#if !os(macOS)
 		do {
 			let audioSession = AVAudioSession.sharedInstance()
+			print("[AudioDebug] configureAudioSession() called — current route: \(audioSession.currentRoute)")
+			print("[AudioDebug] category before: \(audioSession.category.rawValue), mode: \(audioSession.mode.rawValue), isOtherAudioPlaying: \(audioSession.isOtherAudioPlaying)")
 			#if os(tvOS)
 			try audioSession.setCategory(.playAndRecord, options: [])
 			#else
@@ -150,8 +163,9 @@ private extension WebRTCConnector {
 			#endif
 			try audioSession.setMode(.videoChat)
 			try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+			print("[AudioDebug] configureAudioSession() succeeded — route after: \(audioSession.currentRoute)")
 		} catch {
-			print("Failed to configure AVAudioSession: \(error)")
+			print("[AudioDebug] configureAudioSession() FAILED: \(error)")
 		}
 		#endif
 	}
@@ -188,7 +202,12 @@ private extension WebRTCConnector {
 
 extension WebRTCConnector: LKRTCPeerConnectionDelegate {
 	public func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {}
-	public func peerConnection(_: LKRTCPeerConnection, didAdd _: LKRTCMediaStream) {}
+	public func peerConnection(_: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {
+		print("[AudioDebug] didAdd MediaStream — audioTracks: \(stream.audioTracks.count), videoTracks: \(stream.videoTracks.count)")
+		for track in stream.audioTracks {
+			print("[AudioDebug]   remote audio track: \(track.trackId), isEnabled: \(track.isEnabled), readyState: \(track.readyState.rawValue)")
+		}
+	}
 	public func peerConnection(_: LKRTCPeerConnection, didOpen _: LKRTCDataChannel) {}
 	public func peerConnection(_: LKRTCPeerConnection, didRemove _: LKRTCMediaStream) {}
 	public func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCSignalingState) {}
@@ -197,7 +216,7 @@ extension WebRTCConnector: LKRTCPeerConnectionDelegate {
 	public func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCIceGatheringState) {}
 
 	public func peerConnection(_: LKRTCPeerConnection, didChange newState: LKRTCIceConnectionState) {
-		print("ICE Connection State changed to: \(newState)")
+		print("[AudioDebug] ICE Connection State changed to: \(newState.rawValue)")
 	}
 }
 
