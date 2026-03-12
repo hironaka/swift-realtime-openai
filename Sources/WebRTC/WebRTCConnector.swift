@@ -61,10 +61,6 @@ import FoundationNetworking
 		dataChannel.delegate = self
 	}
 
-	deinit {
-		disconnect()
-	}
-
 	package func connect(using request: URLRequest) async throws {
 		print("[AudioDebug] connect() called — connectionState: \(connection.connectionState.rawValue)")
 		guard connection.connectionState == .new else {
@@ -86,17 +82,15 @@ import FoundationNetworking
 
 	public func disconnect() {
 		print("[AudioDebug] disconnect() called — audioTrack.isEnabled: \(audioTrack.isEnabled)")
-        audioTrack.isEnabled = false
-		connection.close()
+		if connection.connectionState != .closed {
+			connection.close()
+		}
 		stream.finish()
-
-        // Deactivate audio session to release resources
         #if !os(macOS)
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-			print("[AudioDebug] audio session deactivated successfully")
         } catch {
-            print("[AudioDebug] deactivateAudioSession FAILED: \(error)")
+            print("[AudioDebug] Error disconnecting: \(error)")
         }
         #endif
 	}
@@ -120,10 +114,6 @@ extension WebRTCConnector {
 			delegate: nil
 		) else { throw WebRTCError.failedToCreatePeerConnection }
 
-		// Audio session must be configured BEFORE creating audio tracks.
-		// The audio source's underlying Audio Unit is initialized at creation time,
-		// and will fail if the session is still in SoloAmbient (no recording support).
-		configureAudioSession()
 		let audioTrack = Self.setupLocalAudio(for: connection)
 
 		guard let dataChannel = connection.dataChannel(forLabel: "oai-events", configuration: LKRTCDataChannelConfiguration()) else {
@@ -135,6 +125,7 @@ extension WebRTCConnector {
 }
 
 private extension WebRTCConnector {
+    
 	static func setupLocalAudio(for connection: LKRTCPeerConnection) -> LKRTCAudioTrack {
 		let audioSource = factory.audioSource(with: LKRTCMediaConstraints(
 			mandatoryConstraints: [
@@ -147,26 +138,6 @@ private extension WebRTCConnector {
 		return tap(factory.audioTrack(with: audioSource, trackId: "local_audio")) { audioTrack in
 			connection.add(audioTrack, streamIds: ["local_stream"])
 		}
-	}
-
-	static func configureAudioSession() {
-		#if !os(macOS)
-		do {
-			let audioSession = AVAudioSession.sharedInstance()
-			print("[AudioDebug] configureAudioSession() called — current route: \(audioSession.currentRoute)")
-			print("[AudioDebug] category before: \(audioSession.category.rawValue), mode: \(audioSession.mode.rawValue), isOtherAudioPlaying: \(audioSession.isOtherAudioPlaying)")
-			#if os(tvOS)
-			try audioSession.setCategory(.playAndRecord, options: [])
-			#else
-			try audioSession.setCategory(.playAndRecord, options: [.defaultToSpeaker])
-			#endif
-			try audioSession.setMode(.videoChat)
-			try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-			print("[AudioDebug] configureAudioSession() succeeded — route after: \(audioSession.currentRoute)")
-		} catch {
-			print("[AudioDebug] configureAudioSession() FAILED: \(error)")
-		}
-		#endif
 	}
 
 	func performHandshake(using request: URLRequest) async throws {
@@ -204,7 +175,7 @@ extension WebRTCConnector: LKRTCPeerConnectionDelegate {
 	public func peerConnection(_: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {
 		print("[AudioDebug] didAdd MediaStream — audioTracks: \(stream.audioTracks.count), videoTracks: \(stream.videoTracks.count)")
 		for track in stream.audioTracks {
-			print("[AudioDebug]   remote audio track: \(track.trackId), isEnabled: \(track.isEnabled), readyState: \(track.readyState.rawValue)")
+			print("[AudioDebug] remote audio track: \(track.trackId), isEnabled: \(track.isEnabled), readyState: \(track.readyState.rawValue)")
 		}
 	}
 	public func peerConnection(_: LKRTCPeerConnection, didOpen _: LKRTCDataChannel) {}
