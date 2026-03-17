@@ -11,7 +11,7 @@ public extension RealtimeAPI {
 	}
 
 	/// Connect to the OpenAI WebSocket Realtime API with the given authentication token and model.
-	static func webSocket(authToken: String, model: Model = .gptRealtime) -> RealtimeAPI {
+	static func webSocket(authToken: String, model: Model = .gptRealtime1p5) -> RealtimeAPI {
 		var request = URLRequest(url: URL(string: "wss://api.openai.com/v1/realtime")!.appending(queryItems: [
 			URLQueryItem(name: "model", value: model.rawValue),
 		]))

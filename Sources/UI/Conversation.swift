@@ -101,7 +101,7 @@ public final class Conversation: @unchecked Sendable {
 		try await client.connect(using: request)
 	}
 
-	public func connect(ephemeralKey: String, model: Model = .gptRealtime) async throws {
+	public func connect(ephemeralKey: String, model: Model = .gptRealtime1p5) async throws {
 		do {
 			try await connect(using: .webRTCConnectionRequest(ephemeralKey: ephemeralKey, model: model))
 		} catch let error as WebRTCConnector.WebRTCError {
